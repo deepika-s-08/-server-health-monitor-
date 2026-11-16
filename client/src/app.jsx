@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import "./app.css";
 
-const API = "http://localhost:5000/api/health";
+const API = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/health`;
 
 function App() {
   const [servers, setServers] = useState([]);
