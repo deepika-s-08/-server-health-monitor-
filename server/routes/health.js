@@ -1,8 +1,20 @@
+
 import express from "express";
 import axios from "axios";
 import Health from "../models/Health.js";
 
 const router = express.Router();
+
+// DFA TRANSITION FUNCTION
+function getNextState(currentState, input) {
+  const transitions = {
+    Unknown: { Success: "Healthy", Failure: "Down" },
+    Healthy: { Success: "Healthy", Failure: "Down" },
+    Down: { Success: "Healthy", Failure: "Down" }
+  };
+
+  return transitions[currentState][input];
+}
 
 // Get all servers
 router.get("/", async (req, res) => {
@@ -10,6 +22,7 @@ router.get("/", async (req, res) => {
     const servers = await Health.find().sort({ _id: -1 });
     res.json(servers);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Database error" });
   }
 });
@@ -25,9 +38,9 @@ router.post("/", async (req, res) => {
       });
     }
 
-    let parsed;
     try {
-      parsed = new URL(url);
+      const parsed = new URL(url);
+
       if (!["http:", "https:"].includes(parsed.protocol)) {
         throw new Error();
       }
@@ -40,16 +53,19 @@ router.post("/", async (req, res) => {
     const server = await Health.create({
       name: name.trim(),
       url,
-      status: "Unknown"
+      status: "Unknown",
+      httpStatusCode: null,
+      transitionHistory: []
     });
 
     res.status(201).json(server);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Unable to add server" });
   }
 });
 
-// Check server health
+// Check server health using DFA and HTTP status code
 router.post("/:id/check", async (req, res) => {
   try {
     const server = await Health.findById(req.params.id);
@@ -61,6 +77,7 @@ router.post("/:id/check", async (req, res) => {
     }
 
     const start = Date.now();
+    let input;
 
     try {
       const response = await axios.get(server.url, {
@@ -69,22 +86,42 @@ router.post("/:id/check", async (req, res) => {
       });
 
       server.responseTime = Date.now() - start;
-      server.status =
-        response.status >= 200 && response.status < 400
-          ? "Healthy"
-          : "Down";
+      server.httpStatusCode = response.status;
 
-    } catch {
-      server.status = "Down";
+      input =
+        response.status >= 200 && response.status < 400
+          ? "Success"
+          : "Failure";
+
+    } catch (error) {
       server.responseTime = Date.now() - start;
+      server.httpStatusCode = error.response?.status ?? null;
+      input = "Failure";
     }
 
+    // Apply DFA transition
+    const previousState = server.status || "Unknown";
+    const nextState = getNextState(previousState, input);
+
+    server.status = nextState;
     server.lastChecked = new Date();
+
+    // Preserve transition history
+    server.transitionHistory.push({
+      previousState,
+      input,
+      nextState,
+      timestamp: new Date()
+    });
+
     await server.save();
 
     res.json(server);
   } catch (error) {
-    res.status(500).json({ message: "Health check failed" });
+    console.error("Health check error:", error);
+    res.status(500).json({
+      message: "Health check failed"
+    });
   }
 });
 
@@ -99,9 +136,13 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    res.json({ message: "Server deleted successfully" });
+    res.json({
+      message: "Server deleted successfully"
+    });
   } catch (error) {
-    res.status(500).json({ message: "Delete failed" });
+    res.status(500).json({
+      message: "Delete failed"
+    });
   }
 });
 
