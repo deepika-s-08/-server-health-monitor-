@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import "./app.css";
 
-const API = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/health`;
+const API = `${import.meta.env.VITE_API_URL || "https://server-health-monitor-1.onrender.com"}/api/health`;
 
 function App() {
   const [servers, setServers] = useState([]);
@@ -355,3 +355,4 @@ function App() {
 }
 
 export default App;
+
